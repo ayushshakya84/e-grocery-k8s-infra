@@ -1,0 +1,65 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'MICROSERVICE_NAME', defaultValue: 'service1', description: 'The name of the microservice to deploy')
+        string(name: 'MICROSERVICE_FOLDER', defaultValue: 'service1-folder', description: 'The folder containing the microservice')
+        string(name: 'DEPLOY_ENV', defaultValue: 'e-com', description: 'The environment to deploy e-com')
+    }
+
+    environment {
+        REGISTRY = 'your-docker-registry'
+        KUBE_NAMESPACE = "${params.DEPLOY_ENV}" // Use the environment parameter for the namespace
+        HELM_CHART_PATH = "path/to/helm/chart/${params.MICROSERVICE_NAME}" // Helm chart path based on the microservice
+        KUBE_CONFIG_CREDENTIALS = 'kube-config'
+        DOCKER_CREDENTIALS = 'docker-creds'
+    }
+
+    stages {
+        stage('Prepare') {
+            steps {
+                script {
+                    // Clean the workspace
+                    cleanWs()
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    def imageName = "${REGISTRY}/${params.MICROSERVICE_NAME}:${params.DEPLOY_ENV}"
+                    echo "Deploying ${params.MICROSERVICE_NAME} to Kubernetes (${params.DEPLOY_ENV}) using Helm..."
+                    withCredentials([file(credentialsId: KUBE_CONFIG_CREDENTIALS, variable: 'KUBECONFIG')]) {
+                        dir(HELM_CHART_PATH) {
+                            sh "helm upgrade --install ${params.MICROSERVICE_NAME} . \
+                                --namespace ${KUBE_NAMESPACE} \
+                                --set image.repository=${imageName} \
+                                --set image.tag=${params.DEPLOY_ENV}"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Post-Deployment Tests') {
+            steps {
+                echo "Running smoke tests for ${params.MICROSERVICE_NAME}..."
+                // Add your test script or testing tool here
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Cleaning workspace after pipeline completion...'
+            cleanWs()
+        }
+        success {
+            echo 'Deployment of ${params.MICROSERVICE_NAME} to ${params.DEPLOY_ENV} successful!'
+        }
+        failure {
+            echo 'Deployment failed for ${params.MICROSERVICE_NAME}. Check the logs.'
+        }
+    }
+}
